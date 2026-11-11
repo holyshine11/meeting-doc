@@ -446,3 +446,27 @@ def test_minutes_without_todo_notes_still_written(monkeypatch):
     text = m.compose_minutes("회의", ["[논의]\n- 인사를 나눔 (00:00)"])
     assert m.TODO_PROMPT not in asked  # 할 일 메모가 없으면 표를 묻지 않는다
     assert "## 실행 항목\n| 할 일 | 담당 | 기한 | 시각 |\n| --- | --- | --- | --- |\n\n## 미결" in text
+
+
+def test_replace_waits_while_windows_holds_the_file(tmp_path, monkeypatch):
+    # Windows는 다른 요청이 meta.json을 읽는 순간 덮어쓰기를 거부한다(WinError 5). 잠깐 뒤 다시 해서 성공해야 한다.
+    real, calls = m.os.replace, []
+
+    def busy(src, dest):
+        calls.append(dest)
+        if len(calls) < 3:
+            raise PermissionError(5, "액세스가 거부되었습니다")
+        real(src, dest)
+
+    monkeypatch.setattr(m.os, "replace", busy)
+    monkeypatch.setattr(m, "REPLACE_WAIT", 0)
+    m.write_meta(tmp_path, {"title": "회의"})
+    assert len(calls) == 3 and m.read_meta(tmp_path)["title"] == "회의"
+
+    def locked(src, dest):
+        raise PermissionError(5, "액세스가 거부되었습니다")
+
+    monkeypatch.setattr(m.os, "replace", locked)
+    with pytest.raises(PermissionError):
+        m.write_meta(tmp_path, {"title": "다른 회의"})
+    assert m.read_meta(tmp_path)["title"] == "회의"

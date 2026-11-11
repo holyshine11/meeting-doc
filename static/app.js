@@ -442,6 +442,9 @@ function editRow(row, part, save) {
 }
 
 let recording = null;
+const SILENT_PEAK = 0.002;  // 이보다 작은 소리만 들어오면 마이크가 막힌 것으로 본다
+const SILENT_MS = 5000;
+const MIC_SILENT = '마이크 소리가 들어오지 않습니다. Windows는 설정 > 개인 정보 > 마이크에서 데스크톱 앱의 마이크 사용을 켜 주세요. 주소창 왼쪽 사이트 설정에서 쓰는 마이크가 맞는지도 확인하세요.';
 
 // meeting 회의에 녹음한다. 녹음이 이미 있으면 뒤에 이어 붙는다.
 async function startRecording(meeting, resumed) {
@@ -464,18 +467,28 @@ async function startRecording(meeting, resumed) {
     await context.audioWorklet.addModule('recorder.js');
     const ws = new WebSocket(`ws://${location.host}/api/record?rate=${context.sampleRate}&meeting=${encodeURIComponent(meeting)}`);
     ws.binaryType = 'arraybuffer';
-    recording = { ws, context, started: Date.now(), id: meeting };
+    const rec = { ws, context, started: Date.now(), id: meeting, peak: 0, silent: false };
+    recording = rec;
     ws.onmessage = refresh;
     ws.onclose = () => { if (recording && !recording.stopping) notice('녹음 연결이 끊겼습니다. 그때까지의 녹음은 저장됩니다.'); stop(); };
     await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = () => fail(new Error('녹음을 시작하지 못했습니다. 이 브라우저가 맞지 않으면 Chrome이나 Edge로 열어 주세요.')); });
     const node = new AudioWorkletNode(context, 'recorder');
-    node.port.onmessage = (e) => { if (ws.readyState === WebSocket.OPEN) ws.send(e.data); };
+    node.port.onmessage = (e) => {
+      if (rec.peak < SILENT_PEAK) rec.peak = new Float32Array(e.data).reduce((a, v) => Math.max(a, Math.abs(v)), rec.peak);
+      if (ws.readyState === WebSocket.OPEN) ws.send(e.data);
+    };
     context.createMediaStreamSource(stream).connect(node);
-    const tick = () => { if (selected === recording.id) $('rec').textContent = `녹음 끝내기 ${clock((Date.now() - recording.started) / 1000)}`; };
+    const started = resumed ? '이어서 녹음 중입니다. 끝내면 앞 녹음에 붙여 처음부터 다시 받아씁니다.' : '녹음 중입니다. 끝내면 회의 내용을 글로 옮기고 화자를 구분합니다.';
+    // 마이크가 막혀 있어도 브라우저는 오류 없이 무음을 넘긴다(Windows 개인 정보 설정이 대표적). 소리가 안 들어오면 바로 알린다.
+    const tick = () => {
+      if (selected === rec.id) $('rec').textContent = `녹음 끝내기 ${clock((Date.now() - rec.started) / 1000)}`;
+      const silent = rec.peak < SILENT_PEAK && Date.now() - rec.started > SILENT_MS;
+      if (silent !== rec.silent) { rec.silent = silent; notice(silent ? MIC_SILENT : started); }
+    };
     delete drawn.head;
     tick();
     recording.timer = setInterval(tick, 1000);
-    notice(resumed ? '이어서 녹음 중입니다. 끝내면 앞 녹음에 붙여 처음부터 다시 받아씁니다.' : '녹음 중입니다. 끝내면 회의 내용을 글로 옮기고 화자를 구분합니다.');
+    notice(started);
   } catch (e) {
     notice(e.message);
     stop();

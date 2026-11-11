@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import time
 import tomllib
 import urllib.parse
 import urllib.request
@@ -180,6 +181,20 @@ def meeting_dir(mid: str) -> Path:
     return DATA / mid
 
 
+REPLACE_TRIES = 50  # 0.1초씩, 최대 5초 기다린다
+REPLACE_WAIT = 0.1
+
+
+def replace_file(src: Path, dest: Path) -> None:
+    """os.replace와 같다. Windows는 다른 요청이 dest를 읽고 있으면 바꾸기를 거부하므로(WinError 5) 잠깐 기다렸다 다시 한다."""
+    for _ in range(REPLACE_TRIES - 1):
+        try:
+            return os.replace(src, dest)
+        except PermissionError:
+            time.sleep(REPLACE_WAIT)
+    os.replace(src, dest)
+
+
 def read_meta(d: Path) -> dict:
     # id는 언제나 폴더 이름이다. Finder에서 폴더 이름을 바꿔도 그대로 열린다.
     return {**json.loads((d / "meta.json").read_text(encoding="utf-8")), "id": d.name}
@@ -188,7 +203,7 @@ def read_meta(d: Path) -> dict:
 def write_meta(d: Path, meta: dict) -> None:
     tmp = d / "meta.json.tmp"
     tmp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, d / "meta.json")  # 쓰는 도중 죽어도 meta.json이 반쪽으로 남지 않는다
+    replace_file(tmp, d / "meta.json")  # 쓰는 도중 죽어도 meta.json이 반쪽으로 남지 않는다
 
 
 def read_transcript(d: Path) -> list[dict]:
@@ -199,7 +214,7 @@ def read_transcript(d: Path) -> list[dict]:
 def write_rows(d: Path, rows: list[dict]) -> None:
     tmp = d / "transcript.jsonl.tmp"
     tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-    os.replace(tmp, d / "transcript.jsonl")
+    replace_file(tmp, d / "transcript.jsonl")
 
 
 def speaker_name(meta: dict, row: dict) -> str:
@@ -216,7 +231,7 @@ def write_text(d: Path, meta: dict) -> None:
         lines.append(f"[{t // 3600:02}:{t // 60 % 60:02}:{t % 60:02}] {speaker_name(meta, r)}: {r['text']}")
     tmp = d / (TEXT_NAME + ".tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    os.replace(tmp, d / TEXT_NAME)
+    replace_file(tmp, d / TEXT_NAME)
 
 
 def open_folder(d: Path) -> None:
@@ -277,7 +292,7 @@ def fetch(url: str, sha256: str, dest: Path, member: str | None = None) -> Path:
         with tarfile.open(tmp) as tar:
             data = tar.extractfile(member).read()
         tmp.write_bytes(data)
-    os.replace(tmp, dest)
+    replace_file(tmp, dest)
     return dest
 
 
@@ -410,7 +425,7 @@ def write_clean(d: Path, meta: dict, samples) -> None:
     try:
         tmp = d / "audio-clean.tmp"
         write_opus(denoise(samples), tmp)
-        os.replace(tmp, d / CLEAN_NAME)
+        replace_file(tmp, d / CLEAN_NAME)
         meta.pop("denoise_error", None)
     except Exception as e:
         meta["denoise_error"] = f"소음을 줄인 사본을 만들지 못했습니다. ({type(e).__name__}: {e})"
@@ -536,7 +551,7 @@ def process_recording(d: Path, meta: dict) -> None:
         # 이어 붙일 때마다 전체를 다시 압축하고 처음부터 다시 받아쓴다. 긴 회의에서 느리면 새 조각만 처리하게 바꾼다.
         tmp = d / "audio.tmp"
         write_opus(samples, tmp)
-        os.replace(tmp, d / AUDIO_NAME)
+        replace_file(tmp, d / AUDIO_NAME)
         for p in parts:
             p.unlink()
     transcribe(d, meta, samples, meta.get("count"))
@@ -558,7 +573,7 @@ def transcribe(d: Path, meta: dict, samples, count: int | None) -> None:
             out.flush()
             meta["progress"] = round(min(s.end / duration, 1), 3)
             tick(d, meta)
-    os.replace(new, d / "transcript.jsonl")
+    replace_file(new, d / "transcript.jsonl")
     meta.pop("speakers", None)  # 처음부터 다시 받아쓴 내용에는 예전 화자 번호가 없다
     label_speakers(d, meta, samples, count)
 
@@ -701,7 +716,7 @@ def write_minutes(d: Path, meta: dict) -> None:
     text = tidy(compose_minutes(meta["title"], notes, step, meta["created"][:10]))
     tmp = d / (MINUTES_NAME + ".tmp")
     tmp.write_text(minutes_head(meta) + f"{text}\n", encoding="utf-8")
-    os.replace(tmp, d / MINUTES_NAME)
+    replace_file(tmp, d / MINUTES_NAME)
 
 
 def sort_notes(notes: list[str]) -> dict[str, str]:
@@ -802,7 +817,7 @@ def refresh_head(d: Path, meta: dict) -> None:
     st, text = f.stat(), f.read_text(encoding="utf-8")
     tmp = d / (MINUTES_NAME + ".tmp")
     tmp.write_text(minutes_head(meta) + text[max(text.find("\n## ") + 1, 0) :], encoding="utf-8")
-    os.replace(tmp, f)
+    replace_file(tmp, f)
     os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))
 
 
@@ -1227,7 +1242,7 @@ def patch_minutes(mid: str, index: int, body: LinePatch):
         st = f.stat()
         tmp = d / (MINUTES_NAME + ".tmp")
         tmp.write_text("\n".join(lines), encoding="utf-8")
-        os.replace(tmp, f)
+        replace_file(tmp, f)
         os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns))  # 고친 시각은 그대로 둬서 '다시 작성' 안내가 바뀌지 않는다
     return {"index": index, "text": lines[index]}
 

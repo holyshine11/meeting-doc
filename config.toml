@@ -1,0 +1,107 @@
+# meeting-doc 설정. 값을 바꾼 뒤 서버를 다시 시작한다.
+
+[server]
+host = "127.0.0.1"   # 루프백 전용. 다른 PC에서 접속하게 하려는 것이 아니면 바꾸지 않는다.
+port = 8765
+
+[list]
+page_size = 20  # 회의 목록에서 한 번에 보여 주는 수. '더보기'를 누를 때마다 이만큼 더 보인다.
+months = 3      # 기간을 고르지 않았을 때 오늘부터 거슬러 보여 주는 개월 수
+
+[paths]
+data_dir = "data"      # 회의 녹음, 전사문, 회의록 저장 위치 (프로젝트 폴더 기준 상대 경로 또는 절대 경로)
+models_dir = "models"  # 음성 인식 모델 저장 위치
+
+[stt]
+model = "large-v3-turbo"  # 느린 PC는 "small"
+device = "cpu"            # cpu | cuda | auto. cuda는 NVIDIA GPU에 CUDA 12와 cuDNN 9를 깔아 둔 PC에서만 쓴다
+compute_type = "int8"
+language = "ko"
+
+[upload]
+max_mb = 1024
+chunk_bytes = 1048576
+
+[llm]
+url = "http://127.0.0.1:11434"
+model = "gemma4:12b"  # 기본 모델. 메모리 8GB PC는 "gemma4:e2b". Ollama에 받아 둔 다른 모델은 화면에서 고를 수 있다
+list_timeout_sec = 3  # 모델 목록을 물을 때 기다리는 시간(초)
+# 첫 화면 준비 안내에서 받게 하는 모델. 위 model이 권장, light_model이 메모리 8GB PC용이다.
+light_model = "gemma4:e2b"
+download_page = "https://ollama.com/download"  # Ollama가 없을 때 화면에서 안내하는 주소
+# 회의 내용을 이 글자 수씩 잘라 메모로 줄인 뒤, 메모를 모아 회의록을 쓴다.
+chunk_chars = 8000
+num_ctx = 16384      # 모델에 주는 문맥 길이(토큰). chunk_chars를 키우면 같이 키운다.
+temperature = 0.2
+timeout_sec = 600    # 요청 한 번을 기다리는 시간(초)
+tries = 2            # 모델이 회의록 형식을 안 지켰을 때 다시 쓰게 하는 횟수(처음 포함)
+
+[minutes]
+agendas = [4, 6]   # 안건 수(최소, 최대)
+items = 5          # 안건 하나와 회의 요약에 쓰는 항목 수 상한
+decisions = 8      # 결정 사항 상한
+same = 0.5        # 짧은 항목의 이만큼(0~1)이 다른 항목에 그대로 들어 있으면 같은 내용으로 보고 먼저 나온 것만 남긴다
+open = 6           # 미결 및 확인 필요 상한
+extra_calls = 5    # 안건 말고 모델에 묻는 횟수(안건 목록, 결정, 실행 항목, 미결, 요약). 진행률 계산에 쓴다
+
+[docx]
+# Word로 내려받는 회의록의 글꼴. PC에 없는 글꼴이면 Word가 다른 글꼴로 바꿔 보여 준다.
+font = "맑은 고딕"
+size_pt = 10.5
+title_pt = 18          # 문서 맨 위 제목
+head_pt = 12.5         # '1. 회의 요약 내용' 같은 제목
+line_spacing = 1.15    # 줄 간격(배)
+gap_pt = 3             # 문단 사이
+page_cm = [21.0, 29.7] # A4
+margin_cm = 2.0
+indent_cm = 0.45       # 항목 들여쓰기 한 단
+label_cm = 2.6         # 회의 개요 표의 이름표 칸
+narrow_cm = 2.4        # 실행 항목 표의 담당 칸
+due_cm = 4.6           # 실행 항목 표의 기한 칸. 기간(날짜 ~ 날짜)이 한 줄에 들어가는 폭
+num_cm = 1.2           # 실행 항목 표의 번호 칸
+cell_pad_pt = 2        # 표 칸 위아래 여백
+shade = "F2F2F2"       # 표 이름표 바탕색
+
+[audio]
+# 저장하는 녹음의 Opus 비트레이트(bps). 24000이면 1시간에 약 11MB.
+bitrate = 24000
+
+[diarization]
+# 화자 구분 모델. 처음 쓸 때 models/diarization/ 에 내려받고 sha256을 확인한다.
+segmentation_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
+segmentation_sha256 = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
+segmentation_member = "sherpa-onnx-pyannote-segmentation-3-0/model.onnx"
+embedding_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+embedding_sha256 = "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"
+# 모델이 처음 나눌 때 쓰는 값. 낮출수록 잘게 나눈다. 잘게 나뉜 번호는 아래 merge_threshold로 다시 합친다.
+threshold = 0.5
+# 목소리 특징이 이 거리보다 가까운 화자 번호는 같은 사람으로 합친다(0~2, 클수록 많이 합친다).
+# 서로 다른 사람이 한 사람으로 합쳐지면 낮추고, 한 사람이 여럿으로 나뉘면 높인다.
+merge_threshold = 0.4
+# 모두 합쳐 이 시간(초)보다 적게 말한 번호는 small_merge_threshold 안에서 가장 닮은 사람에게 붙인다.
+# 닮은 사람이 없으면 몇 마디만 한 다른 참석자로 보고 따로 둔다.
+min_speaker_sec = 10
+small_merge_threshold = 0.6
+# 목소리 특징을 재는 구간 길이(초). 이보다 짧은 말은 특징을 재지 않고, 긴 말은 앞부분만 잰다.
+embed_min_sec = 1.0
+embed_max_sec = 10
+min_duration_on = 0.3
+min_duration_off = 0.5
+# 단어가 어느 화자 구간과도 겹치지 않을 때, 이 시간(초)보다 멀면 화자 미확인으로 둔다.
+max_gap = 0.5
+max_speakers = 20
+
+[denoise]
+# 공간 소음을 줄인 듣기용 사본(audio-clean.ogg)을 만든다. 받아쓰기와 화자 구분은 원래 녹음으로 한다
+# (소음을 줄인 소리로 받아쓰면 오히려 틀리는 곳이 생겼다).
+enabled = true
+# 이 주파수(Hz) 아래의 웅웅거리는 저음을 먼저 걸러 낸다. 말소리가 얇아지면 낮춘다.
+highpass_hz = 100
+# 소음 제거 모델을 거치는 횟수. 2회가 1회보다 말 없는 구간 소음을 2dB쯤 더 줄였다. 늘리면 그만큼 오래 걸린다.
+passes = 2
+model_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx"
+model_sha256 = "e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534"
+
+[record]
+# 한 번에 녹음할 수 있는 최대 길이(분). 넘으면 녹음을 끝내고 처리한다.
+max_minutes = 240

@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BLUE NOTE</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1><button id="home" type="button" title="회의 목록으로">BLUE NOTE</button></h1>
+  <div class="tools">
+    <label class="hint">다크 모드 <input id="theme" type="checkbox" role="switch"></label>
+    <button id="upload" type="button">녹음 파일 올리기</button>
+    <button id="new" type="button" class="primary">새 회의</button>
+    <input id="file" type="file" accept="audio/*,video/*" hidden>
+  </div>
+</header>
+<p id="notice" role="status"></p>
+<section id="setup" aria-labelledby="setup-title" hidden>
+  <h2 id="setup-title">처음 쓰기 전에 준비할 것</h2>
+  <p class="hint">한 번만 하면 됩니다. 순서대로 따라 하세요. 이 창은 준비가 끝나면 사라집니다.</p>
+  <ol>
+    <li id="step-ollama">
+      <strong>1. Ollama 설치하고 켜기</strong>
+      <p class="say"></p>
+      <p class="tools"><a id="ollama-link" class="button primary" target="_blank" rel="noopener">Ollama 내려받기</a><button id="setup-check" type="button">다시 확인</button></p>
+    </li>
+    <li id="step-llm">
+      <strong>2. 회의록을 쓸 AI 모델 받기</strong>
+      <p class="say"></p>
+      <p class="tools"><button id="pull-main" type="button" class="primary"></button><button id="pull-light" type="button"></button></p>
+      <progress hidden></progress>
+    </li>
+    <li id="step-whisper">
+      <strong>3. 음성 인식 모델 받기</strong>
+      <p class="say"></p>
+      <p class="tools"><button id="pull-whisper" type="button" class="primary">음성 인식 모델 받기</button></p>
+      <progress hidden></progress>
+    </li>
+  </ol>
+</section>
+<main>
+  <nav aria-label="회의 목록">
+    <div class="list-head">
+    <h2>회의<span id="total"></span></h2>
+    <form id="filter" class="tools" role="search">
+      <input id="q" type="search" placeholder="회의 제목 검색" aria-label="회의 제목 검색" maxlength="100">
+      <div id="period-box">
+        <button id="period" type="button" aria-haspopup="dialog" aria-expanded="false" title="조회 기간 바꾸기"></button>
+        <div id="cal" role="dialog" aria-label="조회 기간" hidden>
+          <div class="cal-head">
+            <button id="cal-prev" type="button" aria-label="이전 달">‹</button>
+            <strong id="cal-title"></strong>
+            <button id="cal-next" type="button" aria-label="다음 달">›</button>
+          </div>
+          <div class="cal-grid cal-week" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>
+          <div id="cal-days" class="cal-grid"></div>
+          <p id="cal-hint" class="hint"></p>
+        </div>
+      </div>
+    </form>
+    </div>
+    <ul id="list"></ul>
+    <p id="empty" class="hint" hidden>이 기간과 검색어에 맞는 회의가 없습니다. 조건을 바꾸거나 위에서 새 회의를 만들어 주세요.</p>
+    <p class="more"><button id="more" type="button" hidden>더보기</button></p>
+  </nav>
+  <article id="detail" hidden>
+    <div class="head">
+      <h2 id="title"></h2>
+      <button id="rec" type="button" class="rec">녹음 시작</button>
+    </div>
+    <p id="state"></p>
+    <div id="working" hidden>
+      <progress id="progress" max="1" value="0"></progress>
+      <button id="stop" type="button" class="small">중지</button>
+    </div>
+    <details id="info-box">
+      <summary>회의 정보</summary>
+      <form id="info">
+        <label>제목 <input id="f-title" type="text" required maxlength="100"></label>
+        <label>일시 <input id="f-created" type="datetime-local" required></label>
+        <label>장소 <input id="f-place" type="text" maxlength="100" placeholder="예 : 본사 5층 회의실"></label>
+        <label>참석자 <input id="f-attendees" type="text" maxlength="2000"></label>
+        <button id="save" type="submit" class="primary">저장</button>
+      </form>
+      <p class="hint">일시, 장소, 참석자는 회의록 맨 위에 들어갑니다. 참석자를 비우면 참석자 탭에서 붙인 이름을 씁니다.</p>
+    </details>
+    <div id="sticky">
+      <div class="playbar">
+        <audio id="player" controls preload="none" hidden></audio>
+        <label id="clean-box" class="hint" hidden><input id="clean" type="checkbox" checked> 노이즈 캔슬링</label>
+      </div>
+      <div id="tabs" role="tablist" aria-label="회의 보기">
+        <button type="button" role="tab" id="tab-minutes" aria-controls="panel-minutes">회의록</button>
+        <button type="button" role="tab" id="tab-transcript" aria-controls="panel-transcript">회의 내용</button>
+        <button type="button" role="tab" id="tab-speakers" aria-controls="panel-speakers">참석자</button>
+        <button type="button" role="tab" id="tab-files" aria-controls="panel-files">관련 파일</button>
+      </div>
+    </div>
+
+    <section id="panel-minutes" role="tabpanel" aria-labelledby="tab-minutes" hidden>
+      <p class="tools">
+        <button id="minutes" type="button" class="primary">회의록 작성</button>
+        <label class="hint">작성 모델 <select id="engine"></select></label>
+        <a id="docx" class="button" hidden>Word로 내려받기</a>
+      </p>
+      <p id="minutes-stale" class="warn" hidden>회의록을 쓴 뒤에 회의 내용이나 참석자 이름이 바뀌었습니다. 반영하려면 회의록을 다시 작성해 주세요.</p>
+      <p id="minutes-error" class="warn"></p>
+      <p id="minutes-empty" class="hint">회의 내용을 요약해 회의 요약 내용, 안건별 논의, 결정 사항, 실행 항목을 정리합니다. 이 PC의 Ollama만 쓰고 밖으로 보내지 않습니다. 작성 모델은 Ollama에 받아 둔 것 중에서 고릅니다.</p>
+      <div id="minutes-text"></div>
+    </section>
+
+    <section id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden>
+      <p class="hint">문장을 누르면 그 부분부터 재생합니다. 참석자 이름을 누르면 이름을 바꿉니다.</p>
+      <ol id="transcript"></ol>
+    </section>
+
+    <section id="panel-speakers" role="tabpanel" aria-labelledby="tab-speakers" hidden>
+      <p class="tools">
+        <label>참석자 수 <input id="count" type="number" min="1" inputmode="numeric" placeholder="자동"></label>
+        <button id="redo" type="button">화자 다시 구분</button>
+      </p>
+      <p class="hint">참석자 수를 넣고 다시 구분하면 그 수에 맞춰 나눕니다. 다시 구분하면 합친 내용은 지워지고, 붙여 둔 이름은 같은 목소리를 찾아 옮깁니다. 같은 사람이 둘로 나뉘었으면 '같은 사람 합치기'에서 합칠 사람을 고릅니다.</p>
+      <ul id="speakers"></ul>
+    </section>
+
+    <section id="panel-files" role="tabpanel" aria-labelledby="tab-files" hidden>
+      <p class="tools path"><code id="path"></code><button id="open" type="button">폴더 열기</button></p>
+      <ul id="files" class="tree"></ul>
+      <p class="tools">
+        <button id="reprocess" type="button">처음부터 다시 받아쓰기</button>
+        <button id="delete" type="button" class="danger">회의 삭제</button>
+      </p>
+      <p class="hint">다시 받아쓰면 손으로 고친 문장과 참석자 이름이 지워집니다.</p>
+    </section>
+    <footer><button id="back" type="button">회의 목록</button></footer>
+  </article>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

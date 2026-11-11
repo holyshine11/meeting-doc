@@ -1,0 +1,22 @@
+[project]
+name = "meeting-doc"
+version = "0.1.0"
+description = "로컬에서 도는 회의록 작성 도구"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+    "faster-whisper",
+    # faster-whisper 1.2.1이 av.open(metadata_errors=...)를 쓰는데 av 19에서 이 인자가 없어졌다.
+    # faster-whisper가 av 19를 지원하는 버전을 내면 이 줄을 지운다.
+    "av<19",
+    "sherpa-onnx>=2.0.1",
+    "python-docx>=1.2.0",
+]
+
+[dependency-groups]
+dev = ["pytest", "httpx"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

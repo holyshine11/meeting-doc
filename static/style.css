@@ -1,0 +1,241 @@
+:root {
+  color-scheme: light dark;
+  /* 흰 종이에 잉크. 면은 그림자 없이 가는 선으로만 나눈다. 파랑은 고른 것과 링크에만, 빨강은 녹음과 삭제에만 쓴다. */
+  --page: light-dark(#fff, #0e0f12);
+  --soft: light-dark(#f4f5f7, #1b1e25);
+  --line: light-dark(#e3e5ea, #282b34);
+  --text: light-dark(#111318, #eceef2);
+  --muted: light-dark(#5b6270, #9aa1b0);
+  --accent: light-dark(#1d4ed8, #8fb1ff);
+  --primary: #1d4ed8;
+  --primary-hover: #1a43bd;
+  --danger: light-dark(#c42b2b, #ff8078);
+  --rec: #cf2e2e;
+  --field: light-dark(#8b93a3, #6b7385);  /* 입력 칸 테두리. 바탕과 3:1 이상 */
+  /* 그림자는 떠 있는 달력에만 쓴다. */
+  --pop: 0 0 0 1px light-dark(rgb(17 19 24 / .08), rgb(255 255 255 / .12)), 0 12px 32px -8px light-dark(rgb(17 19 24 / .18), rgb(0 0 0 / .7));
+  /* 글자 크기는 이 다섯 단계만 쓴다. */
+  --fs-xs: .8125rem; --fs-sm: .875rem; --fs-lg: 1.125rem; --fs-xl: 1.75rem;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-padding-block-start: 130px; }
+/* Pretendard는 이 PC에 깔려 있을 때만 쓰인다. 밖에서 받아 오지 않는다. */
+body { margin: 0 auto; max-width: 56rem; padding: 0 24px 80px; font: 1rem/1.6 "Pretendard Variable", Pretendard, system-ui, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; color: var(--text); background: var(--page); word-break: keep-all; overflow-wrap: break-word; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+h1 { margin: 0; line-height: 1.3; }
+/* 이름표는 회의 목록으로 가는 버튼이다. */
+#home, #home:hover { display: flex; align-items: center; gap: 9px; padding: 4px 6px 4px 0; border: 0; background: none; font-size: .9375rem; font-weight: 800; letter-spacing: .05em; }
+#home::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--primary); }
+h2 { font-size: var(--fs-xl); font-weight: 700; line-height: 1.25; letter-spacing: -.02em; margin: 0; overflow-wrap: anywhere; text-wrap: balance; }
+main { margin-top: 32px; }
+ul, ol { list-style: none; margin: 0; padding: 0; }
+p { margin: 8px 0; text-wrap: pretty; }
+
+button, .button, select { font: inherit; font-size: var(--fs-sm); font-weight: 500; line-height: 1.4; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--page); color: inherit; cursor: pointer; text-decoration: none; display: inline-block; white-space: nowrap; }
+button, .button, select { transition: background-color .15s ease-out, border-color .15s ease-out, scale .15s ease-out; }
+/* 화면마다 하나뿐인 주된 버튼은 잉크색으로 채운다. */
+.primary { background: var(--text); border-color: var(--text); color: var(--page); }
+/* 손가락 화면에서는 hover가 누른 뒤에도 남는다. 마우스가 있을 때만 건다. */
+@media (hover: hover) {
+  button:hover:not(:disabled), .button:hover, select:hover:not(:disabled) { background: var(--soft); }
+  .primary:hover:not(:disabled), .button.primary:hover { background: color-mix(in oklab, var(--text) 84%, var(--page)); border-color: transparent; }
+  .danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 9%, var(--page)); }
+  /* 카드에 마우스를 올리면 바탕과 글자색을 뒤집는다. 상태 이름표는 제 색을 그대로 둔다. */
+  #list button:hover { background: var(--text); border-color: var(--text); color: var(--page); }
+  #list button:hover small { color: inherit; opacity: .72; }
+  #cal-days button:hover { background: var(--soft); }
+  #cal-days button:is(.from, .to):hover { background: var(--primary-hover); }
+  [role=tab]:hover:not(:disabled) { background: none; color: var(--text); }
+  .speaker:hover:not(:disabled) { background: var(--soft); }
+  .playable:hover { background: var(--soft); }
+  .rec.live:hover:not(:disabled) { background: var(--rec); }
+  .tree a:hover { text-decoration: underline; }
+}
+@media (prefers-reduced-motion: no-preference) { :is(button, .button):not(:disabled, [role=tab], .speaker, .edit):active { scale: .96; } }
+.no-anim, .no-anim * { transition: none !important; }
+/* 녹음 버튼: 빨간 점이 붙는다. 녹음 중에는 빨갛게 채우고 점이 네모로 바뀌어 깜박인다. */
+.rec { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--rec); }
+.rec.live { background: var(--rec); border-color: var(--rec); color: #fff; }
+.rec.live::before { background: #fff; border-radius: 2px; }
+@media (prefers-reduced-motion: no-preference) { .rec.live::before { animation: blink 1.2s ease-in-out infinite alternate; } }
+@keyframes blink { to { opacity: .35; } }
+.danger { color: var(--danger); }
+.small, select { padding: 4px 10px; font-size: var(--fs-xs); }
+input[role=switch] { appearance: none; position: relative; flex: none; width: 32px; height: 18px; margin: 0; border-radius: 999px; background: var(--field); cursor: pointer; transition: background .15s; }
+input[role=switch]::before { content: ""; position: absolute; top: 2px; inset-inline-start: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: translate .15s; }
+input[role=switch]:checked { background: var(--primary); }
+input[role=switch]:checked::before { translate: 14px 0; }
+@media (prefers-reduced-motion: reduce) { input[role=switch], input[role=switch]::before { transition: none; } }
+:is(button, .button, select, input, summary, [role=tab]):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled, select:disabled { opacity: .45; cursor: default; }
+input:is([type=number], [type=text], [type=search], [type=datetime-local]) { appearance: none; font: inherit; font-size: var(--fs-sm); line-height: 1.4; padding: 7px 10px; border: 1px solid var(--field); border-radius: 8px; background: var(--page); color: inherit; }
+input::placeholder { color: var(--muted); opacity: 1; }
+input[type=number] { width: 5em; }
+input[type=checkbox] { accent-color: var(--primary); }
+/* 손가락으로 쓰는 화면에서는 입력 칸 글자가 16px보다 작으면 iOS가 화면을 확대한다. */
+@media (pointer: coarse) { input:is([type=number], [type=text], [type=search], [type=datetime-local]), select { font-size: 1rem; } }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tools label { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-sm); white-space: nowrap; }
+.hint, small, .tools label.hint { color: var(--muted); font-size: var(--fs-xs); }
+header .hint { margin-inline-end: 8px; }
+.warn { color: var(--danger); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+#notice:empty, .warn:empty { display: none; }
+#notice { margin: 16px 0 0; padding: 10px 14px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 9%, var(--page)); font-size: var(--fs-sm); }
+#minutes-stale, #minutes-error { padding: 10px 14px; border-radius: 8px; background: color-mix(in srgb, var(--danger) 8%, var(--page)); }
+#working { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+progress { flex: 1 1 auto; min-width: 0; height: 6px; accent-color: var(--primary); }
+
+/* 목록 머리: 왼쪽에 제목과 건수, 오른쪽에 검색과 기간 */
+.list-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+#total { margin-inline-start: 6px; font-size: var(--fs-sm); font-weight: 400; letter-spacing: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+#filter { flex: 1 1 22rem; justify-content: flex-end; }
+#q { flex: 0 1 17rem; min-width: 0; padding-inline-start: 34px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%238b93a3' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='7' cy='7' r='4.5'/%3E%3Cpath d='m10.5 10.5 3 3'/%3E%3C/svg%3E") no-repeat 11px center var(--page); }
+#period-box { position: relative; }
+#period { font-variant-numeric: tabular-nums; }
+#period::before { content: "기간"; margin-inline-end: 8px; color: var(--muted); }
+
+/* 기간 달력 */
+#cal { position: absolute; z-index: 5; inset-inline-end: 0; top: calc(100% + 8px); width: 19rem; max-width: calc(100vw - 48px); padding: 14px; border: 1px solid transparent; border-radius: 12px; background: light-dark(#fff, #181a20); box-shadow: var(--pop); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cal-head strong { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.cal-head button { width: 32px; padding: 4px 0; border-color: transparent; background: none; font-size: var(--fs-lg); line-height: 1.2; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 2px; text-align: center; font-variant-numeric: tabular-nums; }
+.cal-week { color: var(--muted); font-size: var(--fs-xs); padding-bottom: 4px; }
+#cal-days button { padding: 0; height: 36px; border: 0; border-radius: 50%; background: none; font-weight: 400; transition: none; }
+#cal-days button.in { background: var(--soft); border-radius: 0; }
+#cal-days button.from { border-start-start-radius: 50%; border-end-start-radius: 50%; }
+#cal-days button.to { border-start-end-radius: 50%; border-end-end-radius: 50%; }
+#cal-days button:is(.from, .to) { background: var(--primary); color: #fff; font-weight: 600; }
+#cal-days button[aria-current=date]:not(.from, .to) { box-shadow: inset 0 0 0 1px var(--field); }
+#cal-hint { margin: 10px 0 0; text-align: center; }
+
+/* 회의 카드. 넓은 화면에서 한 줄에 세 장 */
+#list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+#list button { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; width: 100%; height: 100%; min-height: 9rem; text-align: start; white-space: normal; padding: 16px; border-radius: 12px; transition: background-color .15s ease-out, border-color .15s ease-out, color .15s ease-out, scale .15s ease-out; overflow-wrap: anywhere; }
+#list strong { font-size: 1.0625rem; font-weight: 600; line-height: 1.4; letter-spacing: -.01em; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* 카드 맨 아래 줄: 왼쪽에 날짜, 오른쪽에 길이나 진행 단계. 긴 오류 글은 한 줄에서 자르고 전체는 상세 화면에서 보인다. */
+#list small { display: flex; justify-content: space-between; gap: 12px; width: 100%; margin-top: auto; font-weight: 400; font-variant-numeric: tabular-nums; }
+#list small span:first-child { flex: none; }
+#list small span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 상태는 색과 글자로 함께 알린다. 옅은 바탕에 같은 계열의 짙은 글자, 4.5:1 이상인 짝만 쓴다. */
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 6px; background: light-dark(#eceef2, #262a33); color: light-dark(#4b5260, #b9bfcb); font-size: var(--fs-xs); font-weight: 600; font-variant-numeric: tabular-nums; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge[data-state=done] { background: light-dark(#dcf5e3, #12301c); color: light-dark(#116329, #7ee2a0); }
+.badge[data-state=processing] { background: light-dark(#e0e9ff, #17264d); color: light-dark(#1d4ed8, #a5c0ff); }
+.badge[data-state=recording] { background: light-dark(#fde7e5, #3d1513); color: light-dark(#b3261e, #ffa198); }
+.badge[data-state=error] { background: light-dark(#ffedd5, #3a2008); color: light-dark(#9a3412, #fdba74); }
+.more { display: flex; justify-content: center; margin: 24px 0 0; }
+#more, #back { padding: 9px 24px; }
+@media (max-width: 760px) { #list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { #list { grid-template-columns: minmax(0, 1fr); } }
+#empty { margin: 0; padding: 72px 16px; text-align: center; font-size: var(--fs-sm); }
+
+/* 상세 화면 맨 아래 가운데의 목록 버튼 */
+footer { display: flex; justify-content: center; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--line); }
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.head h2 { flex: 1 1 12em; min-width: 0; }
+/* 회의 정보: 접어 둘 수 있는 입력 칸 묶음 */
+#info-box { margin-top: 20px; border: 1px solid var(--line); border-radius: 12px; }
+#info-box summary { padding: 10px 16px; font-size: var(--fs-sm); font-weight: 600; border-radius: 12px; }
+/* 접는 묶음의 머리: 왼쪽에 제목, 오른쪽 끝에 꺾쇠. 접혀 있으면 아래를, 펼치면 위를 본다. */
+summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: ""; flex: none; width: 7px; height: 7px; margin-inline-end: 4px; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; rotate: 45deg; translate: 0 -2px; }
+[open] > summary::after { rotate: -135deg; translate: 0 2px; }
+#info { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px 16px; align-items: end; padding: 4px 16px 0; }
+#info label { display: grid; gap: 4px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+#info input { width: 100%; color: var(--text); font-weight: 400; }
+#info button { grid-column: 1 / -1; justify-self: end; }
+#info-box .hint { margin: 10px 16px 14px; }
+#state { margin: 6px 0 0; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+#state.warn { color: var(--danger); }
+/* 재생바와 탭은 스크롤해도 위에 붙어 있다. 긴 회의 내용을 읽다가도 멈추거나 탭을 바꿀 수 있다. */
+#sticky { position: sticky; top: 0; z-index: 1; background: var(--page); padding-top: 16px; }
+.playbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+audio { flex: 1 1 320px; min-width: 0; height: 40px; }
+#tabs { display: flex; gap: 24px; margin-top: 8px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+[role=tab] { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 2px; font-size: .9375rem; color: var(--muted); }
+[role=tab][aria-selected=true] { border-bottom-color: var(--text); color: var(--text); font-weight: 600; }
+[role=tabpanel] { padding-top: 24px; }
+
+/* 회의록은 문서처럼 읽힌다. 큰 제목, 일시와 장소 묶음, 접고 펴는 장, 그 아래 항목.
+   선의 세기는 세 단계다. 장을 나누는 굵은 잉크 선, 표 머리 아래의 중간 선, 안건과 행 사이의 옅은 선. */
+#minutes-text { margin-top: 28px; }
+#minutes-text h3 { font-size: 1.5rem; font-weight: 700; line-height: 1.3; letter-spacing: -.02em; margin: 0 0 16px; text-wrap: balance; }
+#minutes-text details { border-top: 2px solid var(--text); }
+#minutes-text details:first-of-type { margin-top: 28px; }
+#minutes-text details:last-of-type { border-bottom: 1px solid var(--line); }
+#minutes-text details[open] { padding-bottom: 32px; }
+#minutes-text summary { padding: 14px 0; }
+#minutes-text summary::after { width: 9px; height: 9px; border-color: var(--text); }
+#minutes-text h4 { font-size: var(--fs-lg); font-weight: 700; line-height: 1.3; letter-spacing: -.01em; margin: 0; }
+#minutes-text h5, #minutes-text h6 { font-size: 1rem; font-weight: 600; line-height: 1.4; margin: 20px 0 6px; padding-top: 20px; border-top: 1px solid var(--line); }
+#minutes-text summary + :is(h5, h6) { margin-top: 0; padding-top: 4px; border-top: 0; }
+#minutes-text ul { list-style: disc; padding-inline-start: 1.25em; }
+#minutes-text li { margin: 6px 0; text-wrap: pretty; }
+#minutes-text li::marker { color: var(--field); }
+#minutes-text li.sub { margin-inline-start: 1.2em; list-style: circle; }
+/* 제목 바로 아래의 일시, 장소, 참석자는 항목 점 없이 작은 글씨로 묶는다. */
+#minutes-text h3 + ul { list-style: none; padding: 0; color: var(--muted); font-size: var(--fs-sm); }
+#minutes-text h3 + ul li { margin: 2px 0; }
+#minutes-text table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: var(--fs-sm); }
+/* 둘째 칸(할 일)이 남는 폭을 다 쓰고 왼쪽에 붙는다. 번호, 담당, 기한은 글자 폭만큼만 차지하고 가운데에 둔다. */
+#minutes-text :is(th, td) { border-bottom: 1px solid var(--line); padding: 10px 14px; text-align: center; vertical-align: top; }
+#minutes-text :is(th, td):not(:nth-child(2)) { width: 1%; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#minutes-text td:nth-child(2) { text-align: start; }
+#minutes-text td:first-child { color: var(--muted); }
+#minutes-text th { color: var(--muted); font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; border-bottom-color: var(--field); }
+#minutes-text tr:last-child td { border-bottom: 0; }
+#minutes-text td input { width: 100%; min-width: 7em; }
+#minutes-text tr.playable:hover { background: var(--soft); }
+.time { font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--muted); }
+#minutes-text li.playable { border-radius: 6px; }
+
+/* 왼쪽에 말한 사람과 시각, 오른쪽에 말한 내용. 좁은 화면에서는 위아래로 쌓는다. */
+#transcript li { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 4px 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding-top: 3px; }
+@media (max-width: 640px) {
+  #transcript li { grid-template-columns: minmax(0, 1fr); }
+  .who { flex-direction: row; align-items: baseline; gap: 8px; }
+}
+/* 참석자마다 점 색을 달리한다. 번호에 따라 색상환을 돈다. */
+.speaker { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; padding: 2px 8px; margin-inline-start: -8px; border-color: transparent; border-radius: 6px; background: none; font-size: var(--fs-sm); font-weight: 600; white-space: normal; text-align: start; overflow-wrap: anywhere; }
+.speaker::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: hsl(calc(var(--n) * 137 + 200) 60% 50%); }
+.row { display: flex; gap: 8px; align-items: baseline; padding: 2px 8px; margin-inline-start: -8px; border-radius: 6px; line-height: 1.7; }
+.row span, .row input { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.playable { cursor: pointer; }
+.edit { padding: 0 8px; font-size: var(--fs-xs); flex: none; opacity: 0; }
+/* 회의록의 항목, 안건 제목, 표의 행에도 같은 '수정' 버튼이 붙는다. 고치는 동안은 입력칸과 버튼을 한 줄에 둔다. */
+:is(.row, #minutes-text :is(li, h5, h6, tr)):is(:hover, :focus-within) .edit { opacity: 1; }
+#minutes-text :is(li, h5, h6) .edit { margin-inline-start: 8px; font-weight: 500; }
+#minutes-text .editing:is(li, h5, h6) { display: flex; gap: 8px; align-items: baseline; }
+#minutes-text .editing:is(li, h5, h6) .edit { margin: 0; }
+.editing input { flex: 1 1 auto; min-width: 0; }
+@media (hover: none) { .edit { opacity: 1; } }
+
+#speakers { margin-top: 8px; }
+#speakers li { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 0 10px 8px; border-bottom: 1px solid var(--line); }
+#speakers small { flex: 1 1 6em; font-variant-numeric: tabular-nums; }
+
+.path { padding: 6px 6px 6px 14px; border-radius: 8px; background: var(--soft); }
+code { flex: 1 1 60%; overflow-wrap: anywhere; font: var(--fs-xs)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.tree { margin: 8px 0 24px; }
+.tree li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.tree small { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.tree a { text-decoration: none; }
+a { color: var(--accent); overflow-wrap: anywhere; text-underline-offset: .2em; text-decoration-thickness: from-font; }
+a.primary { color: var(--page); }
+/* 첫 화면 준비 안내. 끝난 단계는 흐리게, 지금 할 단계만 버튼을 보인다. */
+#setup { margin-top: 24px; padding: 20px 24px; border: 1px solid var(--line); border-radius: 12px; }
+#setup h2 { font-size: var(--fs-lg); }
+#setup ol { display: grid; gap: 16px; margin-top: 16px; }
+#setup li { display: grid; gap: 4px; }
+#setup li.ok { color: var(--muted); }
+#setup li.ok strong::after { content: " (완료)"; font-weight: 500; }
+#setup li:is(.ok, .wait) .tools { display: none; }
+#setup .say { margin: 0; font-size: var(--fs-sm); }
+#setup .say:empty { display: none; }
+#setup progress { width: 100%; }

@@ -81,10 +81,14 @@
         <label>제목 <input id="f-title" type="text" required maxlength="100"></label>
         <label>일시 <input id="f-created" type="datetime-local" required></label>
         <label>장소 <input id="f-place" type="text" maxlength="100" placeholder="예 : 본사 5층 회의실"></label>
-        <label>참석자 <input id="f-attendees" type="text" maxlength="2000"></label>
+        <fieldset id="attendees">
+          <legend>참석자</legend>
+          <div id="companies"></div>
+          <button id="add-company" type="button" class="small">업체 추가</button>
+        </fieldset>
         <button id="save" type="submit" class="primary">저장</button>
       </form>
-      <p class="hint">일시, 장소, 참석자는 회의록 맨 위에 들어갑니다. 참석자를 비우면 참석자 탭에서 붙인 이름을 씁니다.</p>
+      <p class="hint">일시, 장소, 참석자는 회의록 맨 위에 들어갑니다. 참석자 이름은 쉼표로 나눠 적습니다. 참석자를 비우면 참석자 탭에서 붙인 이름을 씁니다.</p>
     </details>
     <div id="sticky">
       <div class="playbar">
@@ -112,8 +116,23 @@
     </section>
 
     <section id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" hidden>
-      <p class="hint">문장을 누르면 그 부분부터 재생합니다. 참석자 이름을 누르면 이름을 바꿉니다.</p>
-      <ol id="transcript"></ol>
+      <div class="subbar">
+        <div class="subtabs" role="tablist" aria-label="회의 내용 보기">
+          <button type="button" role="tab" id="tab-original" aria-controls="panel-original">원본</button>
+          <button type="button" role="tab" id="tab-summary" aria-controls="panel-summary">요약본</button>
+        </div>
+        <button id="summarize" type="button" class="primary">회의 내용 요약</button>
+      </div>
+      <div id="panel-original" role="tabpanel" aria-labelledby="tab-original">
+        <p class="hint">문장을 누르면 그 부분부터 재생합니다. 참석자 이름을 누르면 이름을 바꿉니다.</p>
+        <ol id="transcript"></ol>
+      </div>
+      <div id="panel-summary" role="tabpanel" aria-labelledby="tab-summary" hidden>
+        <p id="summary-stale" class="warn" hidden>요약한 뒤에 회의 내용이나 참석자 이름이 바뀌었습니다. 반영하려면 다시 요약해 주세요.</p>
+        <p id="summary-error" class="warn"></p>
+        <p id="summary-empty" class="hint">회의 내용 요약을 누르면 오간 이야기를 나온 순서대로 짧게 줄입니다. 항목을 누르면 원본의 그 시각부터 재생합니다. 작성 모델은 회의록 탭에서 고른 것을 씁니다.</p>
+        <ol id="summary-text"></ol>
+      </div>
     </section>
 
     <section id="panel-speakers" role="tabpanel" aria-labelledby="tab-speakers" hidden>

@@ -17,6 +17,7 @@ from calendar import monthrange
 from datetime import date, datetime
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -45,6 +46,7 @@ CLEAN_NAME = "audio-clean.ogg"  # 소음을 줄인 듣기용 사본. 받아쓰�
 PART_GLOB = "part-*.ogg"  # 이어서 녹음한 조각. 처리할 때 audio.ogg 뒤에 붙이고 지운다.
 TEXT_NAME = "회의 내용.txt"  # 사람이 읽는 회의 내용
 MINUTES_NAME = "회의록.md"  # LLM이 쓴 요약과 회의록
+SUMMARY_NAME = "회의 내용 요약.md"  # LLM이 회의 내용을 나온 순서대로 줄인 것. 화면에서 원본과 견준다
 NOTE_TAGS = ("논의", "결정", "할 일", "숫자", "미결")
 NOTE_PROMPT = (
     "다음은 회의를 자동으로 받아쓴 내용의 일부다. 받아쓰기 오류가 많고 화자 구분도 정확하지 않다. "
@@ -105,6 +107,15 @@ SUMMARY_PROMPT = (
     "무엇이 정해졌는지 알 수 있게 3~{limit}개 항목으로 요약하라. 금액과 기간처럼 중요한 숫자는 넣는다. 시각은 붙이지 않는다."
     + STYLE.replace("- 항목 끝에는 메모에 있던 시각 하나를 (시:분)으로 남긴다.\n", "")
 )
+TALK_PROMPT = (
+    "다음은 회의를 자동으로 받아쓴 내용의 일부다. 받아쓰기 오류가 많고 화자 구분도 정확하지 않다. "
+    "[시:분] 줄은 그 아래 발언이 나온 시각이다. 문맥으로 뜻을 바로잡아 읽고, 오간 이야기를 나온 순서대로 짧게 줄여라.\n"
+    "- 모든 항목은 '- 말한 사람 : 내용 (시:분)' 꼴의 한 문장이다. 말한 사람은 받아쓴 줄 앞의 이름을 그대로 쓴다.\n"
+    "- 같은 사람이 이어서 한 말은 한 항목으로 합친다. 인사, 잡담, 맞장구, 되풀이한 말은 뺀다.\n"
+    "- 뜻을 알 수 없는 낱말은 그대로 옮기지 말고 뺀다. 받아쓴 내용에 없는 것은 지어내지 않는다. 금액, 기간, 수량은 받아쓴 표기 그대로 쓴다.\n"
+    "- 시각은 그 내용이 나온 [시:분] 하나를 쓴다. 설명이나 인사말 없이 항목만 출력한다."
+)
+SPEAKER_HEAD_RE = re.compile(r"- (.+?)[ \t]*:[ \t]*")  # 요약 항목 앞의 '말한 사람 :'
 MINUTES_HEADS = ("## 회의 요약 내용", "## 안건별 논의", "## 결정 사항", "## 실행 항목", "## 미결 및 확인 필요")
 TAG_RE = re.compile(r"^[\s*#-]*\[(" + "|".join(NOTE_TAGS) + r")\]")
 COLON_RE = re.compile(r"(?<=[가-힣)])[ \t]*:[ \t]*")  # 한글 뒤 쌍점. 시각(10:30)은 숫자 뒤라 해당 없다
@@ -115,6 +126,7 @@ CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")  # Word 문서에 넣�
 EXT_RE = re.compile(r"^\.[A-Za-z0-9]{1,5}$")
 TITLE_MAX = 100
 ROW_MAX = 2000  # 회의 내용 한 줄을 고칠 때 받을 수 있는 글자 수
+GROUP_MAX = 50  # 참석 업체 수와 업체 한 곳의 참석자 수 상한
 # 브라우저가 다른 사이트에서 이 서버로 요청을 보내거나 DNS rebinding으로 접근하는 것을 막는다.
 LOCAL_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 LOCAL_ORIGINS = {f"http://{h}" for h in LOCAL_HOSTS}
@@ -719,6 +731,25 @@ def write_minutes(d: Path, meta: dict) -> None:
     replace_file(tmp, d / MINUTES_NAME)
 
 
+def write_summary(d: Path, meta: dict) -> None:
+    """회의 내용을 덩어리마다 나온 순서대로 줄인다. 항목마다 (시:분)이 붙어 화면에서 원본 위치를 바로 들어 볼 수 있다."""
+    chunks = split_chunks(minutes_lines(d, meta), CFG["llm"]["chunk_chars"])
+    names = {speaker_name(meta, r) for r in read_transcript(d)}
+    out: list[str] = []
+    for i, chunk in enumerate(chunks):
+        for line in bullets(ask_llm(TALK_PROMPT, chunk), None):
+            # '참석자 3: ...'처럼 숫자로 끝나는 이름 뒤 쌍점은 tidy가 시각으로 보고 두므로 여기서 띄운다.
+            head = SPEAKER_HEAD_RE.match(line)
+            out.append(f"- {head[1]} : {line[head.end():]}" if head and head[1] in names else line)
+        meta["progress"] = round((i + 1) / len(chunks), 3)
+        tick(d, meta)
+    if not out:
+        raise RuntimeError("모델이 요약 항목을 쓰지 않았습니다. 다시 시도해 주세요.")
+    tmp = d / (SUMMARY_NAME + ".tmp")
+    tmp.write_text(tidy("\n".join(out)) + "\n", encoding="utf-8")
+    replace_file(tmp, d / SUMMARY_NAME)
+
+
 def sort_notes(notes: list[str]) -> dict[str, str]:
     """덩어리마다 쓴 메모를 [논의], [결정] 같은 분류별로 모은다."""
     got: dict[str, list[str]] = {t: [] for t in NOTE_TAGS}
@@ -740,7 +771,7 @@ def same(a: str, b: str) -> bool:
     return block.size >= CFG["minutes"]["same"] * min(len(a), len(b))
 
 
-def bullets(text: str, limit: int) -> list[str]:
+def bullets(text: str, limit: int | None) -> list[str]:
     """모델 답에서 '- ' 항목만 limit개까지 남긴다. 덧붙인 설명 문장과 넘치는 항목은 버린다."""
     lines = [line.strip().replace("**", "") for line in text.splitlines() if line.strip().startswith("- ")]
     return [line for line in lines if line.strip("- .") != "없음"][:limit]
@@ -799,13 +830,21 @@ def tidy(text: str) -> str:
     return "\n".join(out)
 
 
+def attendee_text(meta: dict) -> str:
+    """손으로 적은 참석자를 한 줄로. 예: 한화솔루션 : 권성일, 박성광 / 블루노트 : 이은별"""
+    groups = meta.get("attendees") or []
+    if isinstance(groups, str):
+        return groups  # 업체별로 나누기 전에 적어 둔 참석자
+    return " / ".join(" : ".join(filter(None, [g["name"], ", ".join(g["people"])])) for g in groups)
+
+
 def minutes_head(meta: dict) -> str:
     """회의록 맨 위: 제목, 일시, 장소, 참석자. 장소는 넣었을 때만 나온다. 참석자는 손으로 적은 것이 있으면 그것을 쓴다."""
     named = sorted(set(meta.get("speakers", {}).values()))
     lines = [f"# {meta['title']} 회의록", "", f"- 일시 : {meta['created'].replace('T', ' ')[:16]}"]
     if meta.get("place"):
         lines.append(f"- 장소 : {meta['place']}")
-    lines += [f"- 참석자 : {meta.get('attendees') or ', '.join(named) or '이름 미확인'}", "", ""]
+    lines += [f"- 참석자 : {attendee_text(meta) or ', '.join(named) or '이름 미확인'}", "", ""]
     return "\n".join(lines)
 
 
@@ -959,18 +998,22 @@ def minutes_docx(text: str) -> bytes:
     return out.getvalue()
 
 
-def run_minutes(d: Path) -> None:
-    # 회의록을 못 만들어도 받아쓴 회의 자체는 멀쩡하다. 회의 상태는 완료로 되돌리고 실패 이유만 따로 남긴다.
+# 모델에 맡기는 일: 이름 -> (결과 이름, 처리 중에 보이는 단계)
+LLM_WORK = {"minutes": ("회의록", "회의록 작성 중"), "summary": ("회의 내용 요약", "회의 내용 요약 중")}
+
+
+def run_llm(d: Path, kind: str) -> None:
+    # 회의록이나 요약을 못 만들어도 받아쓴 회의 자체는 멀쩡하다. 회의 상태는 완료로 되돌리고 실패 이유만 따로 남긴다.
     global model_now
     meta = read_meta(d)
     model_now = meta.get("model")
     try:
-        write_minutes(d, meta)
-        meta.pop("minutes_error", None)
+        (write_minutes if kind == "minutes" else write_summary)(d, meta)
+        meta.pop(f"{kind}_error", None)
     except Stopped:
-        pass  # 쓰던 회의록은 버리고 전에 쓴 회의록을 그대로 둔다
+        pass  # 쓰던 것은 버리고 전에 쓴 것을 그대로 둔다
     except Exception as e:
-        meta["minutes_error"] = f"회의록을 만들지 못했습니다. Ollama가 켜져 있는지 확인하고 다시 시도해 주세요. ({type(e).__name__} : {e})"
+        meta[f"{kind}_error"] = f"{LLM_WORK[kind][0]}을 만들지 못했습니다. Ollama가 켜져 있는지 확인하고 다시 시도해 주세요. ({type(e).__name__} : {e})"
     model_now = None
     stopping.discard(d.name)
     meta.update(status=STATUS_DONE, progress=1)
@@ -1129,11 +1172,13 @@ def list_meetings(q: str = "", start: date | None = None, end: date | None = Non
 def get_meeting(mid: str):
     d = meeting_dir(mid)
     rows = [{k: r.get(k) for k in ("start", "end", "speaker", "text")} for r in read_transcript(d)]
-    f = d / MINUTES_NAME
-    minutes = f.read_text(encoding="utf-8") if f.is_file() else None
-    # 회의록을 쓴 뒤에 회의 내용, 참석자 이름, 제목이 바뀌었으면 화면에서 다시 쓰라고 알려 준다.
-    stale = bool(minutes) and (d / TEXT_NAME).is_file() and f.stat().st_mtime < (d / TEXT_NAME).stat().st_mtime
-    return {**read_meta(d), "transcript": rows, "folder": str(d), "files": list_files(d), "minutes": minutes, "minutes_stale": stale, "clean": (d / CLEAN_NAME).is_file()}
+    out = {**read_meta(d), "transcript": rows, "folder": str(d), "files": list_files(d), "clean": (d / CLEAN_NAME).is_file()}
+    for kind, name in (("minutes", MINUTES_NAME), ("summary", SUMMARY_NAME)):
+        f = d / name
+        out[kind] = text = f.read_text(encoding="utf-8") if f.is_file() else None
+        # 쓴 뒤에 회의 내용, 참석자 이름, 제목이 바뀌었으면 화면에서 다시 쓰라고 알려 준다.
+        out[f"{kind}_stale"] = bool(text) and (d / TEXT_NAME).is_file() and f.stat().st_mtime < (d / TEXT_NAME).stat().st_mtime
+    return out
 
 
 class Merge(BaseModel):
@@ -1141,11 +1186,16 @@ class Merge(BaseModel):
     target: int
 
 
+class Company(BaseModel):
+    name: str = Field("", max_length=TITLE_MAX)  # 업체 이름. 비워도 된다
+    people: list[Annotated[str, Field(max_length=TITLE_MAX)]] = Field([], max_length=GROUP_MAX)
+
+
 class MeetingPatch(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=TITLE_MAX)
     created: datetime | None = None  # 회의 일시. 목록의 날짜와 회의록 맨 위에 쓰인다. 폴더 이름의 날짜는 그대로 둔다
     place: str | None = Field(None, max_length=TITLE_MAX)  # 회의 장소. 빈 글자면 지운다
-    attendees: str | None = Field(None, max_length=ROW_MAX)  # 손으로 적은 참석자. 비우면 화자 이름을 쓴다
+    attendees: list[Company] | None = Field(None, max_length=GROUP_MAX)  # 손으로 적은 업체별 참석자. 비우면 화자 이름을 쓴다
     speakers: dict[str, str] | None = None  # 화자 번호 -> 이름
     merge: Merge | None = None  # source 화자의 발언을 모두 target 화자의 것으로 합친다
 
@@ -1186,7 +1236,8 @@ def apply_patch(mid: str, body: MeetingPatch) -> dict:
     if body.place is not None:
         meta["place"] = body.place.strip()
     if body.attendees is not None:
-        meta["attendees"] = body.attendees.strip()
+        groups = [{"name": g.name.strip(), "people": [p.strip() for p in g.people if p.strip()]} for g in body.attendees]
+        meta["attendees"] = [g for g in groups if g["name"] or g["people"]]
     write_meta(d, meta)
     if body.title or body.speakers is not None or body.merge:
         write_text(d, meta)  # 장소만 바꿨을 때는 회의 내용 파일을 건드리지 않아 회의록이 오래된 것으로 표시되지 않는다
@@ -1309,21 +1360,31 @@ def setup_pull(body: PullRequest):
     return dict(setup_jobs)
 
 
-@app.post("/api/meetings/{mid}/minutes")
-def make_minutes(mid: str, body: MinutesRequest | None = None):
-    """회의 내용을 요약해 회의록(회의록.md)을 쓴다. 다시 누르면 새로 쓴다."""
+def start_llm(mid: str, body: MinutesRequest | None, kind: str) -> dict:
     d, meta = idle_meeting(mid)
     model = (body and body.model) or CFG["llm"]["model"]
     if model not in local_models():
         raise HTTPException(422, "이 PC의 Ollama에 없는 모델입니다.")
     meta["model"] = model
     if meta["status"] != STATUS_DONE or not read_transcript(d):
-        raise HTTPException(409, "받아쓴 회의 내용이 있어야 회의록을 쓸 수 있습니다.")
+        raise HTTPException(409, f"받아쓴 회의 내용이 있어야 {LLM_WORK[kind][0]}을 쓸 수 있습니다.")
     # 작성 중에 서버가 꺼지면 다음에 켤 때 처리 중단 오류로 보인다. '다시 받아쓰기'로 풀린다.
-    meta.update(status=STATUS_PROCESSING, stage="회의록 작성 중", progress=0)
+    meta.update(status=STATUS_PROCESSING, stage=LLM_WORK[kind][1], progress=0)
     write_meta(d, meta)
-    jobs.submit(run_minutes, d)
+    jobs.submit(run_llm, d, kind)
     return meta
+
+
+@app.post("/api/meetings/{mid}/minutes")
+def make_minutes(mid: str, body: MinutesRequest | None = None):
+    """회의 내용을 요약해 회의록(회의록.md)을 쓴다. 다시 누르면 새로 쓴다."""
+    return start_llm(mid, body, "minutes")
+
+
+@app.post("/api/meetings/{mid}/summary")
+def make_summary(mid: str, body: MinutesRequest | None = None):
+    """회의 내용을 나온 순서대로 줄여 회의 내용 요약.md를 쓴다. 다시 누르면 새로 쓴다."""
+    return start_llm(mid, body, "summary")
 
 
 @app.get("/api/meetings/{mid}/minutes.docx")

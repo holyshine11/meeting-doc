@@ -8,7 +8,9 @@ const meetingUrl = (id) => `/api/meetings/${encodeURIComponent(id)}`;
 async function api(path, options) {
   const res = await fetch(path, options);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.detail || `요청 실패 (${res.status})`), { status: res.status });
+  // 입력 검사에 걸리면(422) detail이 오류 목록으로 온다. 사람이 읽을 문구로 바꾼다.
+  const detail = Array.isArray(body.detail) ? '입력한 내용이 너무 길거나 형식이 맞지 않습니다. 고쳐서 다시 저장해 주세요.' : body.detail;
+  if (!res.ok) throw Object.assign(new Error(detail || `요청 실패 (${res.status})`), { status: res.status });
   return body;
 }
 
@@ -229,24 +231,29 @@ function changed(part, value) {
   return true;
 }
 
-const TABS = ['minutes', 'transcript', 'speakers', 'files'];
-function showTab(name) {
-  for (const t of TABS) {
-    $(`tab-${t}`).setAttribute('aria-selected', t === name);
-    $(`tab-${t}`).tabIndex = t === name ? 0 : -1;
-    $(`panel-${t}`).hidden = t !== name;
-  }
-}
-TABS.forEach((t, i) => {
-  $(`tab-${t}`).onclick = () => showTab(t);
-  $(`tab-${t}`).onkeydown = (e) => {
-    const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-    if (!step) return;
-    const next = TABS[(i + step + TABS.length) % TABS.length];
-    showTab(next);
-    $(`tab-${next}`).focus();
+// 탭 묶음 하나를 만든다. 이름마다 tab-이름 버튼과 panel-이름 칸이 있다. 고르는 함수를 돌려준다.
+function tabGroup(names) {
+  const show = (name) => {
+    for (const t of names) {
+      $(`tab-${t}`).setAttribute('aria-selected', t === name);
+      $(`tab-${t}`).tabIndex = t === name ? 0 : -1;
+      $(`panel-${t}`).hidden = t !== name;
+    }
   };
-});
+  names.forEach((t, i) => {
+    $(`tab-${t}`).onclick = () => show(t);
+    $(`tab-${t}`).onkeydown = (e) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (!step) return;
+      const next = names[(i + step + names.length) % names.length];
+      show(next);
+      $(`tab-${next}`).focus();
+    };
+  });
+  return show;
+}
+const showTab = tabGroup(['minutes', 'transcript', 'speakers', 'files']);
+const showView = tabGroup(['original', 'summary']);  // 회의 내용 탭 안의 원본과 요약본
 
 function renameSpeaker(base, number, name) {
   const next = prompt(`"${name}"의 이름`, name);
@@ -270,6 +277,7 @@ async function refreshDetail() {
     drawn = { list: drawn.list, meeting: JSON.stringify(m.id) };
     folded.clear();
     showTab(m.minutes ? 'minutes' : 'transcript');
+    showView('original');
     $('info-box').open = !m.transcript.length;  // 갓 만든 회의는 정보부터 적게 펼쳐 둔다
   }
   if (changed('count', m.count)) $('count').value = m.count || '';
@@ -288,7 +296,7 @@ async function refreshDetail() {
     if (m.status !== 'processing') { $('stop').disabled = false; $('stop').textContent = '중지'; }
     $('progress').value = m.progress;
     for (const id of ['save', 'delete']) $(id).disabled = busy;
-    $('minutes').disabled = m.status !== 'done' || !m.transcript.length;
+    $('minutes').disabled = $('summarize').disabled = m.status !== 'done' || !m.transcript.length;
     $('redo').disabled = busy || !m.audio;
     $('reprocess').disabled = busy || !m.audio;
   }
@@ -306,9 +314,12 @@ async function refreshDetail() {
 
   // 회의 정보 칸은 서버 값이 바뀌었을 때만 채운다. 쓰는 중인 글자를 새로 고침이 덮지 않는다.
   if (changed('info', [m.title, m.created, m.place, m.attendees, names])) {
-    info = { title: m.title, created: m.created.slice(0, 16), place: m.place || '', attendees: m.attendees || '' };
-    for (const k in info) $(`f-${k}`).value = info[k];
-    $('f-attendees').placeholder = Object.values(names).sort().join(', ') || '예 : 김하나, 이두리';
+    const groups = groupsOf(m.attendees);
+    info = { title: m.title, created: m.created.slice(0, 16), place: m.place || '', attendees: JSON.stringify(groups) };
+    for (const k of INFO_FIELDS) $(`f-${k}`).value = info[k];
+    // 비어 있으면 빈 줄 하나를 두고, 참석자 탭에서 붙인 이름을 보기로 보여 준다.
+    const hint = Object.values(names).sort().join(', ') || '예 : 김하나, 이두리';
+    $('companies').replaceChildren(...(groups.length ? groups : [{ name: '', people: [] }]).map((g) => companyRow(g, hint)));
   }
 
   if (changed('minutes', [m.minutes, m.minutes_error, m.minutes_stale, src, busy])) {
@@ -321,6 +332,15 @@ async function refreshDetail() {
     $('minutes-error').textContent = m.minutes_error || '';
     $('minutes-empty').hidden = !!m.minutes;
     $('minutes-text').replaceChildren(...markdown(m.minutes || '', !busy && base));
+  }
+
+  if (changed('summary', [m.summary, m.summary_error, m.summary_stale, names, src])) {
+    $('summarize').textContent = m.summary ? '다시 요약' : '회의 내용 요약';
+    $('summarize').className = m.summary && !m.summary_stale ? '' : 'primary';
+    $('summary-stale').hidden = !m.summary_stale;
+    $('summary-error').textContent = m.summary_error || '';
+    $('summary-empty').hidden = !!m.summary;
+    $('summary-text').replaceChildren(...summaryRows(m.summary || '', names));
   }
 
   if (changed('files', [m.folder, m.files, m.audio, busy])) {
@@ -392,6 +412,24 @@ async function refreshDetail() {
     }));
     return li;
   }));
+}
+
+// 회의 내용 요약을 원본과 같은 꼴(왼쪽 말한 사람과 시각, 오른쪽 내용)로 그린다. 항목은 '- 이름 : 내용 (시:분)'이다.
+const SUMMARY_LINE = /^- (?:(.+?) : )?(.*?)\s*\((\d{1,2}):(\d\d)\)\s*$/;
+function summaryRows(text, names) {
+  return text.split('\n').filter((line) => line.startsWith('- ')).map((line) => {
+    const [, who, said, hour, minute] = line.match(SUMMARY_LINE) || [null, '', line.slice(2)];
+    const li = el('li');
+    const head = el('div', undefined, { className: 'who' });
+    // 이름표 점 색은 원본과 같게 화자 번호로 정한다. 이름을 붙이지 않은 화자는 '참석자 N'의 N이 번호다.
+    const n = who && (Object.keys(names).find((k) => names[k] === who) || who.match(/^참석자 (\d+)$/)?.[1]);
+    if (n) { const tag = el('span', who, { className: 'speaker' }); tag.style.setProperty('--n', n); head.append(tag); } else head.append(el('span', who || '화자 미확인', { className: 'hint' }));
+    if (hour) head.append(el('span', clock((Number(hour) * 60 + Number(minute)) * 60), { className: 'time' }));
+    const row = el('div', said, { className: 'row' });
+    if (hour) playAt(row, hour, minute);
+    li.append(head, row);
+    return li;
+  });
 }
 
 async function refresh() {
@@ -579,6 +617,11 @@ for (const id of ['pull-main', 'pull-light', 'pull-whisper']) $(id).onclick = ()
 checkSetup();
 $('engine').onchange = () => { try { localStorage.setItem('model', $('engine').value); } catch { /* 기억만 못 한다 */ } };
 
+$('summarize').onclick = () => {
+  showView('summary');
+  if ($('summarize').textContent === '회의 내용 요약' || confirm('회의 내용을 새로 요약할까요? 몇 분 걸립니다.')) send('POST', `${meetingUrl(selected)}/summary`, { model: $('engine').value || null });
+};
+
 $('minutes').onclick = () => {
   if ($('minutes').textContent === '회의록 작성' || confirm('지금 회의록을 새로 쓸까요? 몇 분 걸립니다.')) send('POST', `${meetingUrl(selected)}/minutes`, { model: $('engine').value || null });
 };
@@ -593,12 +636,38 @@ $('clean').onchange = refresh;
 
 $('open').onclick =() => send('POST', `${meetingUrl(selected)}/open`);
 
-let info = {};  // 서버에 저장돼 있는 회의 정보
+let info = {};  // 서버에 저장돼 있는 회의 정보. 참석자는 JSON 글자로 둬서 그대로 견준다
+const INFO_FIELDS = ['title', 'created', 'place'];
+
+// 참석자 업체 한 줄: 업체명, 쉼표로 나눈 참석자 이름, 삭제
+function companyRow(g = { name: '', people: [] }, hint = '예 : 김하나, 이두리') {
+  const row = el('div', undefined, { className: 'company' });
+  row.append(
+    el('input', undefined, { type: 'text', value: g.name, maxLength: 100, placeholder: '업체명', ariaLabel: '업체명' }),
+    el('input', undefined, { type: 'text', value: g.people.join(', '), maxLength: 2000, placeholder: hint, ariaLabel: '참석자 이름, 쉼표로 나눔' }),
+    el('button', '삭제', { type: 'button', className: 'small', ariaLabel: '이 업체 삭제', onclick: () => row.remove() }),
+  );
+  return row;
+}
+// 업체별로 나누기 전에는 참석자를 글 한 줄로 저장했다. 그런 회의는 업체 이름 없는 한 줄로 보여 준다.
+const splitNames = (text) => text.split(',').map((s) => s.trim()).filter(Boolean);
+const groupsOf = (a) => (typeof a === 'string' ? (a.trim() ? [{ name: '', people: splitNames(a) }] : []) : a || []);
+const readCompanies = () => [...$('companies').children]
+  .map((row) => { const [name, people] = row.querySelectorAll('input'); return { name: name.value.trim(), people: splitNames(people.value) }; })
+  .filter((g) => g.name || g.people.length);
+$('add-company').onclick = () => {
+  const row = companyRow();
+  $('companies').append(row);
+  row.querySelector('input').focus();
+};
+
 $('info').onsubmit = (e) => {
   e.preventDefault();
   // 바뀐 칸만 보낸다. 제목을 그대로 다시 보내면 회의 내용 파일이 새로 쓰여 회의록이 오래된 것으로 표시된다.
   const body = {};
-  for (const k in info) { const v = $(`f-${k}`).value.trim(); if (v !== info[k]) body[k] = v; }
+  for (const k of INFO_FIELDS) { const v = $(`f-${k}`).value.trim(); if (v !== info[k]) body[k] = v; }
+  const groups = readCompanies();
+  if (JSON.stringify(groups) !== info.attendees) body.attendees = groups;
   if (!Object.keys(body).length) return;
   // 제목을 바꾸면 폴더 이름(id)도 바뀐다. 새 id로 갈아탄다.
   api(meetingUrl(selected), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })

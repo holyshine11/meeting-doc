@@ -378,9 +378,43 @@ def test_model_choice_and_attendees(client, monkeypatch):
     assert client.post(f"/api/meetings/{mid}/minutes", json={"model": "큰 모델"}).status_code == 200
     wait_done(client, mid)
     assert used == ["큰 모델"] and m.model_now is None
-    # 손으로 적은 참석자가 회의록 머리말에 화자 이름 대신 들어간다.
-    assert client.patch(f"/api/meetings/{mid}", json={"attendees": "김하나, 이두리"}).json()["attendees"] == "김하나, 이두리"
-    assert "- 참석자 : 김하나, 이두리" in m.minutes_head(client.get(f"/api/meetings/{mid}").json())
+    # 손으로 적은 업체별 참석자가 회의록 머리말에 화자 이름 대신 들어간다. 빈 이름과 빈 줄은 버린다.
+    groups = [{"name": " 한화솔루션 ", "people": ["김하나", " ", "이두리"]}, {"name": "", "people": ["박세나"]}, {"name": "", "people": []}]
+    got = client.patch(f"/api/meetings/{mid}", json={"attendees": groups}).json()["attendees"]
+    assert got == [{"name": "한화솔루션", "people": ["김하나", "이두리"]}, {"name": "", "people": ["박세나"]}]
+    assert "- 참석자 : 한화솔루션 : 김하나, 이두리 / 박세나\n" in m.minutes_head(client.get(f"/api/meetings/{mid}").json())
+    assert client.patch(f"/api/meetings/{mid}", json={"attendees": [{"name": "가" * 101}]}).status_code == 422
+    # 업체별로 나누기 전에 글 한 줄로 저장한 회의도 그대로 읽는다.
+    assert "- 참석자 : 김하나, 이두리\n" in m.minutes_head({"title": "옛 회의", "created": "2026-11-11T10:00:00", "attendees": "김하나, 이두리"})
+
+
+def test_summary_written_and_failure_kept(client, monkeypatch):
+    mid = client.post("/api/meetings", files={"file": ("회의.wav", wav_bytes(), "audio/wav")}).json()["id"]
+    wait_done(client, mid)
+    assert client.get(f"/api/meetings/{mid}").json()["summary"] is None
+    asked = []
+
+    def fake(system, user):
+        asked.append((system, user))
+        return "요약입니다.\n- 참석자 1: 인사를 나눔. (00:00)\n- 없음"
+
+    monkeypatch.setattr(m, "ask_llm", fake)
+    assert client.post(f"/api/meetings/{mid}/summary").status_code == 200
+    got = wait_done(client, mid)
+    # 모델이 덧붙인 설명과 '없음'은 버리고, 쌍점 띄어쓰기와 항목 끝 마침표는 다듬는다. 회의록은 건드리지 않는다.
+    assert got["summary"] == "- 참석자 1 : 인사를 나눔 (00:00)\n" and not got["summary_stale"] and got["minutes"] is None, got
+    assert asked[0][0] == m.TALK_PROMPT and "[00:00]" in asked[0][1]
+    # 이름을 바꾸면 요약이 오래된 것으로 표시된다.
+    client.patch(f"/api/meetings/{mid}", json={"speakers": {"1": "김하나"}})
+    assert client.get(f"/api/meetings/{mid}").json()["summary_stale"]
+
+    def down(system, user):
+        raise OSError("연결 거부")
+
+    monkeypatch.setattr(m, "ask_llm", down)
+    client.post(f"/api/meetings/{mid}/summary")
+    got = wait_done(client, mid)
+    assert got["status"] == m.STATUS_DONE and "연결 거부" in got["summary_error"] and "인사를 나눔" in got["summary"]
 
 
 def test_setup_status_and_pull(client, monkeypatch):
